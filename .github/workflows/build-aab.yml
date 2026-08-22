@@ -1,0 +1,88 @@
+name: 안드로이드 앱 빌드 (AAB)
+
+on:
+  workflow_dispatch:
+    inputs:
+      versionName:
+        description: '버전 이름 (예: 1.0.0)'
+        required: true
+        default: '1.0.0'
+      versionCode:
+        description: '버전 코드 (올릴 때마다 1씩 증가)'
+        required: true
+        default: '1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: 게임 파일 복사
+        run: |
+          mkdir -p app/www
+          cp index.html app/www/index.html
+
+      - name: 패키지 설치
+        working-directory: app
+        run: npm install
+
+      - name: 안드로이드 프로젝트 생성
+        working-directory: app
+        run: npx cap add android
+
+      - name: 가로 화면 고정
+        working-directory: app
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          sed -i 's|android:name="\.MainActivity"|android:name=".MainActivity" android:screenOrientation="sensorLandscape"|' $MANIFEST
+          grep -n screenOrientation $MANIFEST
+
+      - name: 버전 지정
+        working-directory: app
+        run: |
+          G=android/app/build.gradle
+          sed -i "s/versionCode [0-9]*/versionCode ${{ github.event.inputs.versionCode }}/" $G
+          sed -i "s/versionName \"[^\"]*\"/versionName \"${{ github.event.inputs.versionName }}\"/" $G
+
+      - name: 아이콘 생성
+        working-directory: app
+        run: npx @capacitor/assets generate --android || echo skip
+
+      - name: 동기화
+        working-directory: app
+        run: npx cap sync android
+
+      - name: 서명 키 준비
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > /tmp/upload.jks
+
+      - name: AAB 빌드
+        working-directory: app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew bundleRelease -Pandroid.injected.signing.store.file=/tmp/upload.jks -Pandroid.injected.signing.store.password="${{ secrets.KEYSTORE_PASSWORD }}" -Pandroid.injected.signing.key.alias="${{ secrets.KEY_ALIAS }}" -Pandroid.injected.signing.key.password="${{ secrets.KEY_PASSWORD }}"
+
+      - name: APK 빌드
+        working-directory: app/android
+        run: ./gradlew assembleRelease -Pandroid.injected.signing.store.file=/tmp/upload.jks -Pandroid.injected.signing.store.password="${{ secrets.KEYSTORE_PASSWORD }}" -Pandroid.injected.signing.key.alias="${{ secrets.KEY_ALIAS }}" -Pandroid.injected.signing.key.password="${{ secrets.KEY_PASSWORD }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aab
+          path: app/android/app/build/outputs/bundle/release/*.aab
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: app/android/app/build/outputs/apk/release/*.apk
