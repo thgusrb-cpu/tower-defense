@@ -232,6 +232,7 @@
         <button onclick="openInfo('char')">📖 게임 정보</button>
         <button onclick="openInfo('dex')">🗂 도감</button>
         <button onclick="toggleMenu(); restartGame();">다시 시작</button>
+        <button onclick="menuQuit();" id="menuQuitBtn">🚪 게임 종료</button>
         <button onclick="toggleMenu();">닫기</button>
       </div>
     </div>
@@ -699,7 +700,7 @@ const ECON = {
    OrbitControls / GLTFLoader — 동일 저작권자, MIT License
    폰트: Noto Sans KR, Cinzel — SIL Open Font License 1.1
    ========================= */
-const BUILD_TAG = '1621';
+const BUILD_TAG = '1626';
 const PERF = {
   mergeTiles: true,   // 지형 타일 병합
   cullRigs: true,     // 화면 밖 타워는 모션 계산 생략
@@ -8584,11 +8585,11 @@ const VS = {
      save    : 다음 라운드가 유리하면 돈을 모아 상위 등급을 노리는가 */
 const VS_DIFF = [
   { name:'쉬움',   gold:0.85, start:110, think:2800, maxTier:1, upBias:0.25, spots:0.55,
-    common:0, elemLook:0, spotScore:false, save:false },
+    common:0, elemLook:0, spotScore:false, save:false, spread:10 },
   { name:'보통',   gold:1.00, start:140, think:1900, maxTier:2, upBias:0.50, spots:0.75,
-    common:2, elemLook:1, spotScore:false, save:false },
+    common:2, elemLook:1, spotScore:false, save:false, spread:8 },
   { name:'어려움', gold:1.05, start:160, think:1400, maxTier:2, upBias:0.80, spots:1.00,
-    common:5, elemLook:3, spotScore:true,  save:true  },
+    common:5, elemLook:3, spotScore:true,  save:true,  spread:6 },
 ];
 
 // SIDE 와 state 를 잠깐 바꿔 fn 을 실행하고 원래대로 되돌린다.
@@ -8716,6 +8717,58 @@ function vsPickCommon(){
     return id;
   }
   return null;
+}
+/* ===== 1625: 어려움 AI — '막는 것'이 아니라 '빨리 깨는 것'을 목표로 =====
+   이 게임은 한쪽이 라운드를 정리하면 양쪽 다 다음 라운드로 넘어가고, 밀린 쪽은
+   남은 몹 위에 새 웨이브가 얹힌다. 즉 빨리 깨는 것 자체가 공격이다.
+   그런데 예전 AI 는 '돈이 있으면 짓는다'가 전부여서, 라운드를 넘기기만 하면
+   만족하고 처리 속도를 전혀 신경 쓰지 않았다. */
+
+// 라운드 r 에 나올 몹 한 마리의 체력. spawnEnemy 와 같은 식을 쓴다.
+function vsEnemyHpAt(r){
+  let hp = 24 + r*7;
+  if(r <= ECON.earlyRounds) hp *= ECON.earlyHpScale + (1-ECON.earlyHpScale)*(r-1)/ECON.earlyRounds;
+  if(BONUS_ROUNDS.has(r)) hp *= 0.35;
+  else if(r % 8 === 0 && !isBossRound(r)) hp *= 2.4;
+  if(isBossRound(r)) hp *= 4.2;
+  return hp;
+}
+// 이번 라운드에 밀어내야 할 총 체력
+function vsRoundHp(r){
+  const count = isBossRound(r) ? 6 : 15;
+  return vsEnemyHpAt(r) * count;
+}
+/* AI 진영 타워들의 대략적인 초당 피해.
+   상성과 선딜까지 반영한다. 정확한 값이 아니라 '선택지 비교용' 기준이면 충분하다. */
+function vsSideDps(side, extra){
+  const P_ = P[side];
+  if(!P_) return 0;
+  const dt = currentDefType();
+  let sum = 0;
+  const add = (catId, tier)=>{
+    const c = CAT_MAP[catId];
+    if(!c || c.common) return;                       // 지원 타워는 직접 딜이 없다
+    const st = tierStats(c, tier);
+    const wind = unitMotionMs(UNIT_WINDUP_MS, c.id, tier) || 0;
+    const cyc = (st.atkSpeed + wind) / 1000;
+    if(cyc <= 0) return;
+    sum += st.dmg / cyc * matchupMultiplier(catEl(c, tier), dt, isHiddenCat(c));
+  };
+  (P_.towers||[]).forEach(t=>add(t.catId, t.tier));
+  if(extra) add(extra.catId, extra.tier);
+  return sum;
+}
+/* 이 수를 뒀을 때 이번 라운드를 몇 초에 끝낼 수 있는가 (작을수록 좋다) */
+function vsClearSeconds(extra){
+  const dps = vsSideDps(1, extra);
+  if(dps <= 0) return 9999;
+  return vsRoundHp(Math.max(1, P[1].round)) / dps;
+}
+/* 지금 밀리고 있는가 — 내 쪽에 남은 몹이 상대보다 많으면 급하다 */
+function vsBehind(){
+  const mine = (P[1].enemies||[]).length + (P[1].spawnQueue||[]).length;
+  const opp  = (P[0].enemies||[]).length + (P[0].spawnQueue||[]).length;
+  return mine - opp;
 }
 function vsAiBuildCommon(id, c, r){
   const cat = CAT_MAP[id];
@@ -8876,10 +8929,11 @@ function vsAiRebuild(tw){
 // 강화가 막힌 캐릭터면 그 경로가 없으므로, 여유가 충분할 때 상위 등급을 바로 짓는다.
 function vsAiTierChoice(cat){
   const D = VS_DIFF[VS.diff];
-  /* 1613: 강화가 전 캐릭터로 열리면서, 초급으로 깔고 올리는 쪽이 늘 더 싸다.
-     자리가 아직 남아 있으면 초급으로 폭을 넓히고, 자리가 차면 아래 점수로 등급을 고른다. */
-  const roomLeft = ECON.maxTowers <= 0 || P[1].towers.length < ECON.maxTowers - 3;
-  if(UPGRADABLE_IDS.has(cat.id) && roomLeft) return 0;
+  /* 1622: 초급으로 깔고 올리는 게 싸긴 하지만, 자리가 빌 때까지 초급만 지으면
+     27채가 전부 초급인 상태가 된다(실제로 그랬다). '먼저 깔 초급 수'를 난이도별로
+     정해 두고, 그만큼 깔았으면 강화·상위 등급 쪽으로 넘어간다. */
+  const spread = D.spread || 8;
+  if(UPGRADABLE_IDS.has(cat.id) && P[1].towers.length < spread) return 0;
   // 살 수 있는 등급들 중에서 '골드당 기대 피해'가 가장 큰 것을 고른다.
   // elemLook 이 0 이면 상성 점수가 늘 1 이라 예전처럼 살 수 있는 최고 등급이 뽑힌다.
   let best = 0, bestScore = -1;
@@ -8914,8 +8968,23 @@ function aiThink(dt){
                            .map(t=>({tw:t, sc: vsElemScore(cat, t.tier+1, D.elemLook) - t.tier*0.05}))
                            .sort((a,b)=> b.sc - a.sc || a.tw.tier - b.tw.tier)
                            .map(x=>x.tw);
-    // 자리가 다 찼으면 확률을 무시하고 무조건 키우는 쪽으로 간다
-    const wantUpgrade = ups.length && (full || Math.random() < D.upBias) &&
+    /* 자리가 다 찼거나, 깔기로 한 초급 수를 채웠으면 확률을 무시하고 키우는 쪽으로 간다.
+       (1622: 예전에는 확률에만 맡겨서 AI 진영이 초급으로만 덮였다) */
+    const spreadDone = P[1].towers.length >= (D.spread || 8);
+    /* 1624: 공통 지원 타워를 강화보다 먼저 본다.
+       강화를 강제로 우선하게 만든 뒤로는 돈이 있으면 늘 강화로 빠져서
+       AI 가 공통 타워를 영영 못 짓고 있었다. 조건을 만족할 때만 한 채씩 세운다. */
+    if(!full){
+      const cid0 = vsPickCommon();
+      if(cid0){
+        const cspot0 = vsPickSpot(CAT_MAP[cid0].base.range);
+        if(cspot0){ vsAiBuildCommon(cid0, cspot0[0], cspot0[1]); return; }
+      }
+    }
+    /* 1626: 어려움(spotScore)은 아래 '처리 시간 비교'가 강화까지 함께 저울질하므로
+       이 단순 분기를 타면 안 된다. 여기서 걸리면 늘 강화로 빠져서 1625 로직이 죽는다. */
+    const wantUpgrade = !D.spotScore && ups.length &&
+                        (full || spreadDone || Math.random() < D.upBias) &&
                         P[1].gold >= upgradeCost(ups[0]) * 1.15;
     if(wantUpgrade){ vsAiUpgrade(ups[0]); return; }
     if(full){
@@ -8924,11 +8993,44 @@ function aiThink(dt){
       if(low) vsAiRebuild(low);
       return;
     }
-    // 공통 지원 타워 — 주력이 어느 정도 깔린 뒤에 한 종씩
-    const cid = vsPickCommon();
-    if(cid){
-      const cspot = vsPickSpot(CAT_MAP[cid].base.range);
-      if(cspot){ vsAiBuildCommon(cid, cspot[0], cspot[1]); return; }
+    /* 1625: 어려움은 '같은 돈으로 처리 시간이 가장 많이 줄어드는 수'를 고른다.
+       살 수 있는 등급마다 지었다고 가정하고 라운드 클리어 시간을 계산해, 초당 단축폭이
+       가장 큰 쪽을 택한다. 강화도 같은 잣대로 비교한다. */
+    if(D.spotScore){
+      const behind = vsBehind();
+      const now = vsClearSeconds(null);
+      let bestMove = null, bestGain = 0;
+      for(let t = 0; t <= D.maxTier; t++){
+        const st = tierStats(cat, t);
+        if(P[1].gold < st.cost) continue;
+        const gain = (now - vsClearSeconds({catId:cat.id, tier:t})) / st.cost;   // 골드당 단축 초
+        if(gain > bestGain){ bestGain = gain; bestMove = {kind:'build', tier:t, cost:st.cost}; }
+      }
+      if(ups.length){
+        const u = ups[0], uc = upgradeCost(u);
+        if(P[1].gold >= uc){
+          // 올린 뒤의 dps 를 계산하려면 그 타워를 한 등급 올린 셈 쳐야 한다
+          const before = vsSideDps(1, null);
+          const c2 = CAT_MAP[u.catId];
+          const stA = tierStats(c2, u.tier), stB = tierStats(c2, u.tier+1);
+          const wA = unitMotionMs(UNIT_WINDUP_MS, c2.id, u.tier) || 0;
+          const wB = unitMotionMs(UNIT_WINDUP_MS, c2.id, u.tier+1) || 0;
+          const dt2 = currentDefType();
+          const dA = stA.dmg/((stA.atkSpeed+wA)/1000)*matchupMultiplier(catEl(c2,u.tier), dt2, isHiddenCat(c2));
+          const dB = stB.dmg/((stB.atkSpeed+wB)/1000)*matchupMultiplier(catEl(c2,u.tier+1), dt2, isHiddenCat(c2));
+          const after = before - dA + dB;
+          const secAfter = after > 0 ? vsRoundHp(Math.max(1, P[1].round))/after : 9999;
+          const gain = (now - secAfter) / Math.max(1, uc);
+          if(gain > bestGain){ bestGain = gain; bestMove = {kind:'upgrade', tw:u}; }
+        }
+      }
+      if(bestMove){
+        if(bestMove.kind === 'upgrade'){ vsAiUpgrade(bestMove.tw); return; }
+        const sp2 = vsPickSpot(tierStats(cat, bestMove.tier).range);
+        if(sp2){ vsAiBuild(sp2[0], sp2[1], bestMove.tier); return; }
+      }
+      // 밀리고 있으면 저축하지 않는다 — 몹이 쌓이는 중이라 당장의 화력이 급하다
+      if(behind > 4) return;
     }
     /* 저축: 다음 라운드가 유리한데 지금은 초급밖에 못 사는 상황이면 한 수 쉰다.
        (중급 값의 8할까지 모였을 때만 — 아니면 계속 굶는다) */
@@ -9426,6 +9528,21 @@ function dexMarkSeen(id){ if(id==null) return; if(!DEX.seen.has(id)){ DEX.seen.a
 function dexMarkCleared(id){ if(id==null) return; DEX.seen.add(id); DEX.cleared.add(id); dexSave(); }
 
 function infoClose(){ document.getElementById('infoOv').style.display = 'none'; }
+
+/* 1622: 게임 종료.
+   앱(Capacitor)에서는 앱을 닫고, 웹에서는 닫을 수단이 없으므로 처음 화면으로 돌아간다.
+   (브라우저 탭은 스크립트로 못 닫는다) */
+function menuQuit(){
+  const isApp = !!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App);
+  const msg = isApp ? '게임을 종료할까요? 진행 중인 판은 사라집니다.'
+                    : '처음 화면으로 돌아갈까요? 진행 중인 판은 사라집니다.';
+  if(!confirm(msg)) return;
+  if(isApp){
+    try { window.Capacitor.Plugins.App.exitApp(); return; } catch(e){}
+  }
+  try { toggleMenu(); } catch(e){}
+  try { backToLobby(); } catch(e){ location.reload(); }
+}
 
 function infoGoalHTML(){
   return '<h3>🎯 게임 목표</h3>' +
