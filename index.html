@@ -700,7 +700,7 @@ const ECON = {
    OrbitControls / GLTFLoader — 동일 저작권자, MIT License
    폰트: Noto Sans KR, Cinzel — SIL Open Font License 1.1
    ========================= */
-const BUILD_TAG = '1626';
+const BUILD_TAG = '1627';
 const PERF = {
   mergeTiles: true,   // 지형 타일 병합
   cullRigs: true,     // 화면 밖 타워는 모션 계산 생략
@@ -8666,10 +8666,16 @@ function vsBuildArena(){
 function vsSetupAI(){
   vsBuildArena();
   const D = VS_DIFF[VS.diff];
-  // 미러전이 아니면 플레이어와 같은 캐릭터는 후보에서 뺀다 (같은 게 나오면 대결이 심심하다)
-  const pool = VS.mirror ? CATALOG.filter(c=>c.id === P[0].myChar)
-                         : CATALOG.filter(c=>c.id !== P[0].myChar);
-  const cat = (pool.length ? pool : CATALOG)[Math.floor(Math.random()*(pool.length||CATALOG.length))];
+  /* 1627: 공통 지원 타워(36~40)는 배정 대상이 아니다.
+     CATALOG 에는 공통 캐릭터도 들어 있어서, 여기서 걸러내지 않으면 AI 가
+     '균열각인' 같은 지원 타워를 주력으로 배정받는다. 그 캐릭터는 공격력이 0 이라
+     AI 가 한 마리도 못 잡고 몹이 무한히 쌓였다(실제로 그랬다).
+     플레이어 쪽 assignMyCharacter 에는 이 필터가 원래 있었다. */
+  const base = CATALOG.filter(c=>!c.common);
+  const pool = VS.mirror ? base.filter(c=>c.id === P[0].myChar)
+                         : base.filter(c=>c.id !== P[0].myChar);
+  const src = pool.length ? pool : base;
+  const cat = src[Math.floor(Math.random()*src.length)];
   P[1].myChar = cat.id;
   P[1].gold = Math.max(D.start, startGoldFor(cat.id));   // AI 도 같은 규칙으로 시작 골드를 받는다
   VS.aiThink = 1500;
@@ -9428,10 +9434,10 @@ body.lobby #vsBar, body.lobby #vsViewBtn, body.lobby #msg { display:none !import
   (function lobbyBg(){
     const bg = document.getElementById('lobbyBgImg');
     if(bg) bg.style.backgroundImage = 'url(' + LOBBY_BG_B64 + ')';
-    const done = CATALOG.filter(c=>DEX.cleared.has(c.id)).length;
+    const done = CATALOG.filter(c=>!c.common && DEX.cleared.has(c.id)).length;
     const box = document.getElementById('lobbyBox');
     if(box) box.insertAdjacentHTML('beforeend',
-      '<div class="lprog">🗂 도감 <b>' + done + '</b> / ' + CATALOG.length + ' 클리어</div>');
+      '<div class="lprog">🗂 도감 <b>' + done + '</b> / ' + CATALOG.filter(c=>!c.common).length + ' 클리어</div>');
   })();
 
   document.getElementById('lobbyGo').addEventListener('click', function(){
@@ -9601,7 +9607,9 @@ function infoCharHTML(){
 }
 
 function infoDexHTML(){
-  const list = CATALOG.slice().sort((a,b)=>a.id-b.id);
+  // 1627: 공통 지원 타워(36~40)는 배정 대상이 아니라 도감에도 넣지 않는다.
+  // (넣으면 '클리어 0/40' 처럼 영원히 못 채우는 칸이 다섯 생긴다)
+  const list = CATALOG.filter(c=>!c.common).sort((a,b)=>a.id-b.id);
   const done = list.filter(c=>DEX.cleared.has(c.id)).length;
   const seen = list.filter(c=>DEX.seen.has(c.id)).length;
   let h = '<h3>🗂 도감</h3>';
