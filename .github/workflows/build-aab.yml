@@ -42,11 +42,11 @@ jobs:
         working-directory: app
         run: npx cap add android
 
-      - name: 가로 화면 고정
+      - name: 세로 화면 고정
         working-directory: app
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
-          sed -i 's|android:name="\.MainActivity"|android:name=".MainActivity" android:screenOrientation="sensorLandscape"|' $MANIFEST
+          sed -i 's|android:name="\.MainActivity"|android:name=".MainActivity" android:screenOrientation="sensorPortrait"|' $MANIFEST
           grep -n screenOrientation $MANIFEST
 
       - name: 버전 지정
