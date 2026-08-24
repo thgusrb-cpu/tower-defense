@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - uses: android-actions/setup-android@v3
 
@@ -48,6 +48,14 @@ jobs:
           MANIFEST=android/app/src/main/AndroidManifest.xml
           sed -i 's|android:name="\.MainActivity"|android:name=".MainActivity" android:screenOrientation="sensorPortrait"|' $MANIFEST
           grep -n screenOrientation $MANIFEST
+
+      - name: API 수준 35 로 올리기
+        working-directory: app
+        run: |
+          V=android/variables.gradle
+          sed -i 's/compileSdkVersion = [0-9]*/compileSdkVersion = 35/' $V
+          sed -i 's/targetSdkVersion = [0-9]*/targetSdkVersion = 35/' $V
+          cat $V
 
       - name: 버전 지정
         working-directory: app
