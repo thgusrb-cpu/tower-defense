@@ -49,12 +49,12 @@ jobs:
           sed -i 's|android:name="\.MainActivity"|android:name=".MainActivity" android:screenOrientation="sensorPortrait"|' $MANIFEST
           grep -n screenOrientation $MANIFEST
 
-      - name: API 수준 35 로 올리기
+      - name: API 수준 36 으로 올리기
         working-directory: app
         run: |
           V=android/variables.gradle
-          sed -i 's/compileSdkVersion = [0-9]*/compileSdkVersion = 35/' $V
-          sed -i 's/targetSdkVersion = [0-9]*/targetSdkVersion = 35/' $V
+          sed -i 's/compileSdkVersion = [0-9]*/compileSdkVersion = 36/' $V
+          sed -i 's/targetSdkVersion = [0-9]*/targetSdkVersion = 36/' $V
           cat $V
 
       - name: 버전 지정
