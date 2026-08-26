@@ -18,8 +18,8 @@
 
   * { box-sizing: border-box; }
   html, body { margin:0; height:100%; overflow:hidden; background:#0d0f0a; font-family:'Noto Sans KR','Malgun Gothic',sans-serif; color:#e8e8d8; }
-  #app { position:relative; width:100%; height:100%; }
-  #canvasWrap { position:absolute; top:var(--safeTop); left:50%; transform:translateX(-50%); height:var(--safeH); width:calc(1.3333 * var(--safeH)); }
+  #app { position:relative; width:100%; height:100%; padding:var(--safeTop) 0 var(--safeBot); box-sizing:border-box;}
+  #canvasWrap { position:absolute; top:0; left:50%; transform:translateX(-50%); height:100%; width:calc(1.3333 * var(--safeH)); }
   #canvasWrap canvas { display:block; width:100%; height:100%; }
 
   #minimap {
@@ -32,7 +32,7 @@
 
   /* ===== 상단바 (커스텀 메탈 스타일) ===== */
   #topBar {
-    position:absolute; top:0; left:50%; transform:translateX(-50%); width:133.33vh; z-index:15; pointer-events:none;
+    position:absolute; top:0; left:50%; transform:translateX(-50%); width:min(100%, calc(1.3333 * var(--safeH))); z-index:15; pointer-events:none;
     display:flex; align-items:center; gap:10px; flex-wrap:wrap;
     padding:7px 10px;
     background:linear-gradient(180deg, rgba(14,15,10,.55) 0%, rgba(14,15,10,.4) 65%, rgba(14,15,10,0) 100%);
@@ -243,22 +243,30 @@
     }
   } catch(e){}
 
-  // ② env() 가 0 이면 손으로 여백을 잡아 준다
+  /* ② 여백을 직접 넣는다.
+     안드로이드 웹뷰는 env(safe-area-inset-*) 을 0 으로 주는 일이 잦아
+     조건을 걸면 아무 일도 일어나지 않는다. 앱이면 무조건 넣는다. */
   function applyFallbackInsets(){
     var probe = document.createElement('div');
     probe.style.cssText = 'position:fixed;top:0;left:0;height:env(safe-area-inset-top,0px);width:1px;';
     document.body.appendChild(probe);
-    var top = probe.getBoundingClientRect().height;
+    var envTop = probe.getBoundingClientRect().height;
     probe.remove();
-    if(top > 0) return;                       // env 가 제대로 오면 그대로 둔다
-    // 화면 전체 높이와 실제 보이는 높이의 차이 = 시스템 바가 먹은 만큼
-    var gap = Math.max(0, (window.screen.height || 0) - window.innerHeight);
-    if(gap <= 0 || gap > 220) gap = 56;       // 값이 이상하면 흔한 기본값으로
-    var t = Math.round(gap * 0.55), b = Math.round(gap * 0.45);
+    var t, b;
+    if(envTop > 0){                 // env 가 제대로 오는 기기면 그 값을 쓴다
+      t = Math.round(envTop);
+      b = 24;
+    } else {                        // 아니면 화면 높이 차이로 재고, 그것도 없으면 기본값
+      var gap = Math.max(0, (window.screen.height || 0) - window.innerHeight);
+      if(gap <= 0 || gap > 220) gap = 76;
+      t = Math.round(gap * 0.6);
+      b = Math.round(gap * 0.4);
+    }
     var r = document.documentElement.style;
     r.setProperty('--safeTop', t + 'px');
     r.setProperty('--safeBot', b + 'px');
     r.setProperty('--safeH', 'calc(100vh - ' + (t + b) + 'px)');
+    window.__insets = t + '/' + b;   // 확인용
   }
   if(document.readyState === 'complete') applyFallbackInsets();
   else window.addEventListener('load', applyFallbackInsets);
@@ -769,7 +777,7 @@ const ECON = {
    OrbitControls / GLTFLoader — 동일 저작권자, MIT License
    폰트: Noto Sans KR, Cinzel — SIL Open Font License 1.1
    ========================= */
-const BUILD_TAG = '1629';
+const BUILD_TAG = '1630';
 const PERF = {
   mergeTiles: true,   // 지형 타일 병합
   cullRigs: true,     // 화면 밖 타워는 모션 계산 생략
