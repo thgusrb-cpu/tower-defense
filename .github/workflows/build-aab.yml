@@ -33,6 +33,7 @@ jobs:
         run: |
           mkdir -p app/www
           cp index.html app/www/index.html
+          grep -o "BUILD_TAG = '[0-9]*'" app/www/index.html | head -1
 
       - name: 패키지 설치
         working-directory: app
@@ -48,6 +49,24 @@ jobs:
           MANIFEST=android/app/src/main/AndroidManifest.xml
           sed -i 's|android:name="\.MainActivity"|android:name=".MainActivity" android:screenOrientation="sensorPortrait"|' $MANIFEST
           grep -n screenOrientation $MANIFEST
+
+      - name: 전체화면 강제 해제
+        working-directory: app
+        run: |
+          python3 - <<'PY'
+          import re
+          p = 'android/app/src/main/res/values/styles.xml'
+          s = open(p, encoding='utf-8').read()
+          item = '        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>\n'
+          def add(m):
+              b = m.group(0)
+              if 'windowOptOutEdgeToEdgeEnforcement' in b:
+                  return b
+              return b.replace('</style>', item + '    </style>')
+          s2 = re.sub(r'<style name="AppTheme[^"]*"[\s\S]*?</style>', add, s)
+          open(p, 'w', encoding='utf-8').write(s2)
+          print(s2)
+          PY
 
       - name: API 수준 36 으로 올리기
         working-directory: app
