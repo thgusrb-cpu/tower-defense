@@ -7,10 +7,19 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Noto+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
+/* 1628: 앱(전체화면 웹뷰)에서 상단 상태바와 하단 제스처바 아래로 UI 가 깔려
+   버튼이 안 눌리던 문제. 화면 안전영역만큼 빼고 그 안에 배치한다.
+   브라우저에서는 env() 값이 0 이라 예전과 똑같이 보인다. */
+:root{
+  --safeTop: env(safe-area-inset-top, 0px);
+  --safeBot: env(safe-area-inset-bottom, 0px);
+  --safeH: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+}
+
   * { box-sizing: border-box; }
   html, body { margin:0; height:100%; overflow:hidden; background:#0d0f0a; font-family:'Noto Sans KR','Malgun Gothic',sans-serif; color:#e8e8d8; }
   #app { position:relative; width:100%; height:100%; }
-  #canvasWrap { position:absolute; top:0; left:50%; transform:translateX(-50%); height:100%; width:133.33vh; }
+  #canvasWrap { position:absolute; top:var(--safeTop); left:50%; transform:translateX(-50%); height:var(--safeH); width:calc(1.3333 * var(--safeH)); }
   #canvasWrap canvas { display:block; width:100%; height:100%; }
 
   #minimap {
@@ -700,7 +709,7 @@ const ECON = {
    OrbitControls / GLTFLoader — 동일 저작권자, MIT License
    폰트: Noto Sans KR, Cinzel — SIL Open Font License 1.1
    ========================= */
-const BUILD_TAG = '1627';
+const BUILD_TAG = '1628';
 const PERF = {
   mergeTiles: true,   // 지형 타일 병합
   cullRigs: true,     // 화면 밖 타워는 모션 계산 생략
