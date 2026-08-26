@@ -223,6 +223,66 @@
 </style>
 </head>
 <body>
+<script>
+/* ===== 앱(Capacitor) 전용 보정 — 1629 =====================================
+   문제: 안드로이드 웹뷰는 env(safe-area-inset-*) 을 0 으로 돌려주는 경우가 많아
+   CSS 만으로는 상태바·제스처바 아래로 화면이 깔리는 걸 못 막는다.
+   그래서 ① 상태바가 웹뷰를 덮지 않도록 플러그인으로 직접 끄고,
+   ② 그래도 값이 0 이면 실제 화면 높이 차이로 여백을 재서 넣는다. */
+(function(){
+  var isApp = !!(window.Capacitor && window.Capacitor.Plugins);
+  if(!isApp) return;
+
+  // ① 상태바가 웹뷰 위에 겹치지 않게
+  try {
+    var SB = window.Capacitor.Plugins.StatusBar;
+    if(SB){
+      SB.setOverlaysWebView({ overlay: false });
+      SB.setBackgroundColor({ color: '#0d0f0a' });
+      SB.setStyle({ style: 'DARK' });
+    }
+  } catch(e){}
+
+  // ② env() 가 0 이면 손으로 여백을 잡아 준다
+  function applyFallbackInsets(){
+    var probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;top:0;left:0;height:env(safe-area-inset-top,0px);width:1px;';
+    document.body.appendChild(probe);
+    var top = probe.getBoundingClientRect().height;
+    probe.remove();
+    if(top > 0) return;                       // env 가 제대로 오면 그대로 둔다
+    // 화면 전체 높이와 실제 보이는 높이의 차이 = 시스템 바가 먹은 만큼
+    var gap = Math.max(0, (window.screen.height || 0) - window.innerHeight);
+    if(gap <= 0 || gap > 220) gap = 56;       // 값이 이상하면 흔한 기본값으로
+    var t = Math.round(gap * 0.55), b = Math.round(gap * 0.45);
+    var r = document.documentElement.style;
+    r.setProperty('--safeTop', t + 'px');
+    r.setProperty('--safeBot', b + 'px');
+    r.setProperty('--safeH', 'calc(100vh - ' + (t + b) + 'px)');
+  }
+  if(document.readyState === 'complete') applyFallbackInsets();
+  else window.addEventListener('load', applyFallbackInsets);
+
+  // 앱에서 거슬리는 기본 동작
+  document.addEventListener('contextmenu', function(e){ e.preventDefault(); }, {passive:false});
+  document.addEventListener('dblclick', function(e){ e.preventDefault(); }, {passive:false});
+
+  // 안드로이드 뒤로가기 — 정보창 닫기 / 로비면 종료 / 게임 중이면 일시정지
+  window.addEventListener('load', function(){
+    try {
+      var App = window.Capacitor.Plugins.App;
+      if(!App) return;
+      App.addListener('backButton', function(){
+        var info  = document.getElementById('infoOv');
+        var lobby = document.getElementById('vsStart');
+        if(info && info.style.display === 'flex'){ info.style.display = 'none'; return; }
+        if(lobby && lobby.style.display !== 'none'){ App.exitApp(); return; }
+        if(typeof togglePause === 'function') togglePause();
+      });
+    } catch(e){}
+  });
+})();
+</script>
 <div id="app">
   <div id="canvasWrap">
     <div id="loading">3D 씬 불러오는 중...</div>
@@ -709,7 +769,7 @@ const ECON = {
    OrbitControls / GLTFLoader — 동일 저작권자, MIT License
    폰트: Noto Sans KR, Cinzel — SIL Open Font License 1.1
    ========================= */
-const BUILD_TAG = '1628';
+const BUILD_TAG = '1629';
 const PERF = {
   mergeTiles: true,   // 지형 타일 병합
   cullRigs: true,     // 화면 밖 타워는 모션 계산 생략
