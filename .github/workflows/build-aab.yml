@@ -50,23 +50,42 @@ jobs:
           sed -i 's|android:name="\.MainActivity"|android:name=".MainActivity" android:screenOrientation="sensorPortrait"|' $MANIFEST
           grep -n screenOrientation $MANIFEST
 
-      - name: 전체화면 강제 해제
+      - name: 웹뷰 인셋 적용
         working-directory: app
         run: |
-          python3 - <<'PY'
-          import re
-          p = 'android/app/src/main/res/values/styles.xml'
-          s = open(p, encoding='utf-8').read()
-          item = '        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>\n'
-          def add(m):
-              b = m.group(0)
-              if 'windowOptOutEdgeToEdgeEnforcement' in b:
-                  return b
-              return b.replace('</style>', item + '    </style>')
-          s2 = re.sub(r'<style name="AppTheme[^"]*"[\s\S]*?</style>', add, s)
-          open(p, 'w', encoding='utf-8').write(s2)
-          print(s2)
-          PY
+          F=$(find android/app/src/main/java -name MainActivity.java)
+          echo "대상 파일: $F"
+          cat > "$F" <<'JAVA'
+          package com.soso.randomtowerdefense;
+
+          import android.os.Bundle;
+          import android.view.View;
+          import androidx.core.graphics.Insets;
+          import androidx.core.view.ViewCompat;
+          import androidx.core.view.WindowInsetsCompat;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  final View root = findViewById(android.R.id.content);
+                  ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+                      Insets b = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+                      v.setPadding(b.left, b.top, b.right, b.bottom);
+                      return insets;
+                  });
+              }
+          }
+          JAVA
+          cat "$F"
+
+      - name: 인셋 라이브러리 확인
+        working-directory: app
+        run: |
+          G=android/app/build.gradle
+          grep -q "androidx.core:core" $G || sed -i '/^dependencies {/a\    implementation "androidx.core:core:1.13.1"' $G
+          grep -n "androidx.core" $G
 
       - name: API 수준 36 으로 올리기
         working-directory: app
